@@ -84,7 +84,7 @@ void UseLStick(LS Lstick, int tilt_time_msec, int delay_after_tilt_msec)
     default:
       break;
   }
-  tiltJoystick(lx_per, ly_per, rx_per, ry_per, tilt_time_msec, delay_after_tilt_msec);
+  tiltJoystick(lx_per, ly_per, rx_per, ry_per);
 }
 
 void UseRStick(RS Rstick, int tilt_time_msec, int delay_after_tilt_msec)
@@ -110,7 +110,7 @@ void UseRStick(RS Rstick, int tilt_time_msec, int delay_after_tilt_msec)
     default:
       break;
   }
-  tiltJoystick(lx_per, ly_per, rx_per, ry_per, tilt_time_msec, delay_after_tilt_msec);
+  tiltJoystick(lx_per, ly_per, rx_per, ry_per);
 }
 
 void TiltLeftStick(int direction_deg, double power, int holdtime, int delaytime)
@@ -141,15 +141,9 @@ void TiltLeftStick(int direction_deg, double power, int holdtime, int delaytime)
   @param tilt_time_msec        スティックを倒し続ける時間
   @param delay_after_tilt_msec スティックを倒した後の待ち時間
 */
-void tiltJoystick(int lx_per, int ly_per, int rx_per, int ry_per, int tilt_time_msec, int delay_after_tilt_msec)
+void tiltJoystick(int lx_per, int ly_per, int rx_per, int ry_per)
 {
   SwitchController().setStickTiltRatio(lx_per, ly_per, rx_per, ry_per);
-  delay(tilt_time_msec);
-  if (delay_after_tilt_msec > 0)
-  {
-    SwitchController().setStickTiltRatio(0, 0, 0, 0);
-    delay(delay_after_tilt_msec);
-  }
 }
 
 void sendReportOnly(USB_JoystickReport_Input_t t_joystickInputData)

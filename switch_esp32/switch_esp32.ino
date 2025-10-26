@@ -1,6 +1,5 @@
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
 #include <M5Unified.h>
 #include <Avatar.h>
 #include <faces/DogFace.h>
@@ -8,12 +7,12 @@
 #include "SwitchControllerESP32.h"
 #include "Arduino.h"
 
-// Bluetooth
-BLEServer* pServer;
-bool deviceConnected = false;
-#define DEVICE_NAME "Atom 3S"
-#define SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+const char* ssid = "HR01a-DC45C3";
+const char* password = "864a9ac3c3";
+
+WiFiUDP udp;
+unsigned int localUdpPort = 12345;
+char packetBuffer[255];
 
 // Mrs.Stack
 m5avatar::Avatar avatar;
@@ -23,6 +22,7 @@ int faceIdx = 0;
 
 uint16_t pressed_bottons = 0;
 
+// (この関数は元のコードから変更ありません)
 void execution_command(String query) {
   int first_colon = query.indexOf(":");
   int second_colon = query.indexOf(":", first_colon + 1);
@@ -56,53 +56,12 @@ void execution_command(String query) {
     int lx = arg2.substring(0, colon2).toInt();
     int ly = arg2.substring(colon2 + 1).toInt();
 
-    tiltJoystick(lx, ly, rx, ry, 100, 0);
+    tiltJoystick(lx, ly, rx, ry);
   }else{
     releaseButton(static_cast<Button>(pressed_bottons));
     pressed_bottons = 0;
   }
 }
-
-class Callbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* pCharacteristic) override {
-    String value = String((char*)pCharacteristic->getValue().c_str());
-    avatar.setSpeechText(value.c_str());
-    execution_command(value); 
-  }
-};
-
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) override {
-    deviceConnected = true;
-    avatar.setFace(faces[1]);
-    avatar.setExpression(m5avatar::Expression::Happy);
-
-    palettes[1]->set("primary", TFT_WHITE);
-    palettes[1]->set("background", TFT_RED);
-    avatar.setColorPalette(*palettes[1]);
-    avatar.setSpeechText("Connected!");
-    avatar.setExpression(m5avatar::Expression::Happy);
-    avatar.setScale(0.4);
-    avatar.setPosition(-56, -96);
-  }
-
-  void onDisconnect(BLEServer* pServer) override {
-    deviceConnected = false;
-    avatar.setFace(faces[0]);
-    avatar.setExpression(m5avatar::Expression::Sad);
-
-    palettes[2]->set("primary", TFT_DARKGREY);
-    palettes[2]->set("background", TFT_NAVY);
-    avatar.setColorPalette(*palettes[2]);
-    avatar.setSpeechText("Oh no…");
-    avatar.setScale(0.4);
-    avatar.setPosition(-56, -96);
-
-    delay(500);
-    pServer->startAdvertising();
-  }
-};
-
 void setupAvatar() {
   faces[0] = avatar.getFace();
   faces[1] = avatar.getFace();
@@ -111,17 +70,21 @@ void setupAvatar() {
   palettes[1] = new m5avatar::ColorPalette();
   palettes[2] = new m5avatar::ColorPalette();
 
-  palettes[1]->set("primary", TFT_YELLOW);
-  palettes[1]->set("background", TFT_DARKCYAN);
+  // (0) 待機中
+  palettes[0]->set("primary", TFT_YELLOW);
+  palettes[0]->set("background", TFT_DARKCYAN);
+  // (1) 接続成功
+  palettes[1]->set("primary", TFT_WHITE);
+  palettes[1]->set("background", TFT_RED);
+  // (2) 接続失敗
   palettes[2]->set("primary", TFT_DARKGREY);
   palettes[2]->set("background", TFT_NAVY);
 
   avatar.init();
-  avatar.setColorPalette(*palettes[0]);
-  avatar.setSpeechText("Waiting for connection...");
+  avatar.setColorPalette(*palettes[0]); // 待機中パレット
+  avatar.setSpeechText("Waiting for WiFi...");
   avatar.setExpression(m5avatar::Expression::Neutral);
-  avatar.setScale(0.4);
-  avatar.setPosition(-56, -96);
+
 }
 
 void setup() {
@@ -135,24 +98,54 @@ void setup() {
   M5.Speaker.setVolume(128);
   setupAvatar();
 
-  BLEDevice::init(DEVICE_NAME);
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
+  Serial.print("Connecting to WiFi ");
+  Serial.println(ssid);
+  avatar.setSpeechText("Connecting WiFi...");
 
-  BLEService* pService = pServer->createService(SERVICE_UUID);
-  BLECharacteristic* pWriteCharacteristic = pService->createCharacteristic(
-    UUID_RX,
-    BLECharacteristic::PROPERTY_WRITE);
-  pWriteCharacteristic->setCallbacks(new Callbacks());
-  pService->start();
+  WiFi.begin(ssid, password);
+  
+  int try_count = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    M5.update();
+    Serial.print(".");
+    try_count++;
+    
+    if (try_count > 20) {
+        Serial.println("\nWiFi connection failed!");
+        avatar.setFace(faces[0]);
+        avatar.setExpression(m5avatar::Expression::Sad);
+        avatar.setColorPalette(*palettes[2]);
+        avatar.setSpeechText("WiFi Failed!");
+        while(1) { M5.update(); }
+    }
+  }
 
-  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->start();
+  Serial.println("\nWiFi connected!");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
 
-  avatar.setSpeechText("Come on!");
+  avatar.setFace(faces[1]);
+  avatar.setExpression(m5avatar::Expression::Happy);
+  avatar.setColorPalette(*palettes[1]);
+  avatar.setSpeechText(WiFi.localIP().toString().c_str());
+
+  udp.begin(localUdpPort);
+  Serial.printf("UDP Listening on port %d\n", localUdpPort);
+  avatar.setSpeechText(WiFi.localIP().toString().c_str());
+
 }
 
 void loop() {
-  M5.update();
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    int len = udp.read(packetBuffer, 254);
+    if (len > 0) {
+      packetBuffer[len] = 0;
+    }
+    
+    String commandStr = String(packetBuffer);
+
+    execution_command(commandStr);
+  }
 }
